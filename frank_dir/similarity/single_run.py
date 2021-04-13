@@ -45,6 +45,7 @@ adata1_post = sc.read('./adata1_post_mnn.h5ad')
 adata2_post = sc.read('./adata2_post_mnn.h5ad')
 
 # adata12_post = adata1_post.concatenate(adata2_post)
+# adata12_post.raw = adata12_post
 # sc.pp.highly_variable_genes(adata12_post,flavor='cell_ranger',n_top_genes=3000)
 # adata12_post = adata12_post[:,adata12_post.var['highly_variable']]
 # sc.pp.regress_out(adata12_post,['total_counts'])
@@ -53,6 +54,19 @@ adata2_post = sc.read('./adata2_post_mnn.h5ad')
 # sc.pp.neighbors(adata12_post)
 # sc.tl.umap(adata12_post)
 # adata12_post.write('./adata12_post_mnn.h5ad')
+
+adata12_post = sc.read('./adata12_post_mnn.h5ad')
+#adata12_post.raw.to_adata().write('./adata12_post_mnn_cellxgene.h5ad')
+
+# # all MHC gene
+# mhc_genes = ['HLA-A','HLA-B','HLA-C','HLA-DMA','HLA-DMB','HLA-DOA','HLA-DOB','HLA-DPA1','HLA-DPB1','HLA-DQA1','HLA-DQA2','HLA-DQB1','HLA-DQB2','HLA-DRA',
+#             'HLA-DRB1','HLA-DRB5','HLA-E','HLA-F','HLA-G']
+# sc.pl.umap(adata12_post,color=mhc_genes)
+# plt.savefig('mhc_genes.png',bbox_inches='tight')
+# plt.close()
+
+
+
 
 
 
@@ -109,12 +123,12 @@ annotation_map2 ={
     '13': 'ccRCC',
     '14': 'Macrophage',
     '15': 'Henle',
-    '16': 'Myofibroblast',
+    '16': 'myofibroblast',
     '17': 'NK',
     '18': 'glomerular_endothelial',
     '19': 'Macrophage',
     '20': 'CD4_T',
-    '21': 'Myofibroblast',
+    '21': 'myofibroblast',
     '22': 'CD4_T',
     '23': 'Macrophage',
     '24': 'B_cell',
@@ -122,10 +136,17 @@ annotation_map2 ={
     '26': 'collecting_duct',
     '27': 'Erythroid',
     '28': 'proximal',
-    '29': 'Podocyte',
+    '29': 'podocyte',
 }
 adata2.obs['anno'] = adata2.obs['leiden'].astype('str').map(annotation_map2)
 adata2_post.obs['anno'] = adata2_post.obs['leiden'].astype('str').map(annotation_map2)
+
+# after annotation
+add = pd.concat([adata1_post.obs['anno'],adata2_post.obs['anno']]).values
+adata12_post.obs['anno'] = add
+adata12_post.raw.to_adata().write('have_annotation_whole12.h5ad')
+
+sys.exit('stop')
 
 
 
@@ -134,6 +155,7 @@ adata1_c = adata1[adata1.obs['anno']=='ccRCC',:]
 adata2_c = adata2[adata2.obs['anno']=='ccRCC',:]
 adata1_post_c = adata1_post[adata1_post.obs['anno']=='ccRCC',:]
 adata2_post_c = adata2_post[adata2_post.obs['anno']=='ccRCC',:]
+
 
 
 
@@ -155,7 +177,7 @@ sc.pl.rank_genes_groups_heatmap(adata1_c,n_genes=5,swap_axes=True)
 plt.savefig('./RCC1_cancer_heatmap.pdf',bbox_inches='tight')
 plt.close()
 
-# add the interested genes
+
 
 
 
@@ -190,25 +212,34 @@ plt.close()
 
 
 # umap ON post-mnn
-post = sc.read('./adata12_post_mnn.h5ad')
-post1 = post[post.obs['patient']=='RCC1',:]
-post1.obs['anno'] = post1.obs['leiden'].astype('str').map(annotation_map1)
-post2 = post[post.obs['patient']=='RCC2',:]
-post2.obs['anno'] = post2.obs['leiden'].astype('str').map(annotation_map2)
+adata1_post_c.obs['final'] = ['RCC1_'+item for item in adata1_c.obs['leiden']]
+adata2_post_c.obs['final'] = ['RCC2_'+item for item in adata2_c.obs['leiden']]
+post12_c = adata1_post_c.concatenate(adata2_post_c)
 
-adata1_c.obs.to_csv('check1.txt',sep='\t')
 
-post1_c = post1[post1.obs['anno']=='ccRCC',:]
-post1_c.obs['final'] = ['RCC1_'+item for item in adata1_c.obs['leiden']]
-post2_c = post2[post2.obs['anno']=='ccRCC',:]
-post2_c.obs['final'] = ['RCC2_'+item for item in adata2_c.obs['leiden']]
-
-post12 = post1_c.concatenate(post2_c)
-sc.pl.umap(post12,color='final')
-plt.savefig('./layout.pdf',bbox_inches='tight')
+# MNN intergrated ccRCC
+post12_c.raw = post12_c
+sc.pp.filter_genes(post12_c,min_cells=1)
+sc.pp.highly_variable_genes(post12_c,flavor='cell_ranger',n_top_genes=3000)
+post12_c = post12_c[:,post12_c.var['highly_variable']]
+sc.tl.pca(post12_c)
+sc.pp.neighbors(post12_c)
+sc.tl.leiden(post12_c,resolution=0.5)
+sc.tl.umap(post12_c)
+sc.pl.umap(post12_c,color=['leiden'])
+plt.savefig('./post12_cancer_umap.pdf',bbox_inches='tight')
+plt.close()
+sc.tl.rank_genes_groups(adata1_c,groupby='leiden')
+sc.pl.rank_genes_groups_heatmap(adata1_c,n_genes=5,swap_axes=True)
+plt.savefig('./post12_cancer_heatmap.pdf',bbox_inches='tight')
 plt.close()
 
-post12.write('post12_to_cellxgene.h5ad')
+post12_c.raw.to_adata().write('post12_to_cellxgene.h5ad')
+
+
+
+
+sys.exit('stop')
 
 # just for batch-effect removal
 adata1_post_c.obs['leiden'] = adata1_c.obs['leiden']
