@@ -8,12 +8,56 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import sys
 import scrublet as scr
-import sys
+# import mnnpy
+
 
 
 # read RCC1 and RCC2
 adata1 = sc.read('../RCC1/RCC1_after_umap.h5ad')
 adata2 = sc.read('../RCC2/RCC2_after_umap.h5ad')
+
+# put raw back to adata
+adata1 = adata1.raw.to_adata()
+adata2 = adata2.raw.to_adata()
+
+# get common genes
+rcc1_genes = set(adata1.var_names.to_list())
+rcc2_genes = set(adata2.var_names.to_list())
+common = list(rcc1_genes.intersection(rcc2_genes))
+
+adata1 = adata1[:,common]
+adata2 = adata2[:,common]
+
+# # perform batch-effect removal 
+# sc.pp.highly_variable_genes(adata1,flavor='cell_ranger',n_top_genes=3000)
+# sc.pp.highly_variable_genes(adata2,flavor='cell_ranger',n_top_genes=3000)
+# hvg_adata1 = adata1[:,adata1.var['highly_variable']].var_names.to_list()
+# hvg_adata2 = adata2[:,adata2.var['highly_variable']].var_names.to_list()
+# hvg = list(set(hvg_adata1).intersection(set(hvg_adata2)))
+
+
+# corrected = mnnpy.mnn_correct(adata1,adata2,var_subset=hvg,do_concatenate=False)
+# adata1_post,adata2_post = corrected[0]
+# adata1_post.write('./adata1_post_mnn.h5ad')
+# adata2_post.write('./adata2_post_mnn.h5ad')
+
+adata1_post = sc.read('./adata1_post_mnn.h5ad')
+adata2_post = sc.read('./adata2_post_mnn.h5ad')
+
+# adata12_post = adata1_post.concatenate(adata2_post)
+# sc.pp.highly_variable_genes(adata12_post,flavor='cell_ranger',n_top_genes=3000)
+# adata12_post = adata12_post[:,adata12_post.var['highly_variable']]
+# sc.pp.regress_out(adata12_post,['total_counts'])
+# sc.pp.scale(adata12_post,max_value=10)
+# sc.tl.pca(adata12_post)
+# sc.pp.neighbors(adata12_post)
+# sc.tl.umap(adata12_post)
+# adata12_post.write('./adata12_post_mnn.h5ad')
+
+
+
+
+
 
 # add annotations
 annotation_map1 ={
@@ -45,6 +89,8 @@ annotation_map1 ={
     '25': 'glomerular_endothelial',
 }
 adata1.obs['anno'] = adata1.obs['leiden'].astype('str').map(annotation_map1)
+adata1_post.obs['anno'] = adata1_post.obs['leiden'].astype('str').map(annotation_map1)
+
 
 annotation_map2 ={
     '0': 'CD4_T',
@@ -79,23 +125,17 @@ annotation_map2 ={
     '29': 'Podocyte',
 }
 adata2.obs['anno'] = adata2.obs['leiden'].astype('str').map(annotation_map2)
-
-# put raw back to adata
-adata1 = adata1.raw.to_adata()
-adata1 = adata1[:,~adata1.var['mt']]
+adata2_post.obs['anno'] = adata2_post.obs['leiden'].astype('str').map(annotation_map2)
 
 
-adata2 = adata2.raw.to_adata()
-adata2 = adata2[:,~adata2.var['mt']]
+
+# only tumor
+adata1_c = adata1[adata1.obs['anno']=='ccRCC',:]
+adata2_c = adata2[adata2.obs['anno']=='ccRCC',:]
+adata1_post_c = adata1_post[adata1_post.obs['anno']=='ccRCC',:]
+adata2_post_c = adata2_post[adata2_post.obs['anno']=='ccRCC',:]
 
 
-# get common genes and only pull out ccRCC
-rcc1_genes = set(adata1.var_names.to_list())
-rcc2_genes = set(adata2.var_names.to_list())
-common = list(rcc1_genes.intersection(rcc2_genes))
-
-adata1_c = adata1[adata1.obs['anno']=='ccRCC',common]
-adata2_c = adata2[adata2.obs['anno']=='ccRCC',common]
 
 
 # leiden on both
@@ -107,10 +147,15 @@ sc.tl.pca(adata1_c)
 sc.pp.neighbors(adata1_c)
 sc.tl.leiden(adata1_c,resolution=0.5)
 sc.tl.umap(adata1_c)
+sc.pl.umap(adata1_c,color=['leiden'])
+plt.savefig('./RCC1_cancer_umap.pdf',bbox_inches='tight')
+plt.close()
 sc.tl.rank_genes_groups(adata1_c,groupby='leiden')
 sc.pl.rank_genes_groups_heatmap(adata1_c,n_genes=5,swap_axes=True)
 plt.savefig('./RCC1_cancer_heatmap.pdf',bbox_inches='tight')
 plt.close()
+
+# add the interested genes
 
 
 
@@ -122,10 +167,59 @@ sc.tl.pca(adata2_c)
 sc.pp.neighbors(adata2_c)
 sc.tl.leiden(adata2_c,resolution=0.5)
 sc.tl.umap(adata2_c)
+sc.pl.umap(adata2_c,color=['leiden'])
+plt.savefig('./RCC2_cancer_umap.pdf',bbox_inches='tight')
+plt.close()
 sc.tl.rank_genes_groups(adata2_c,groupby='leiden')
 sc.pl.rank_genes_groups_heatmap(adata2_c,n_genes=5,swap_axes=True)
 plt.savefig('./RCC2_cancer_heatmap.pdf',bbox_inches='tight')
 plt.close()
+
+
+
+# # let's see what are the differentially expressed genes between two tumors
+# adata12_c = adata1_c.concatenate(adata2_c)
+# sc.tl.rank_genes_groups(adata12_c,groupby='patient')
+# sc.pl.rank_genes_groups_heatmap(adata12_c,n_genes=25,swap_axes=True)
+# plt.savefig('./DE_between12.pdf',bbox_inches='tight')
+# plt.close()
+# for patient in adata12_c.obs['patient'].astype('category').cat.categories:
+#     df = sc.get.rank_genes_groups_df(adata12_c,group=patient)
+#     df.to_csv('de_list_{}.txt'.format(patient),sep='\t',index=None)
+
+
+
+# umap ON post-mnn
+post = sc.read('./adata12_post_mnn.h5ad')
+post1 = post[post.obs['patient']=='RCC1',:]
+post1.obs['anno'] = post1.obs['leiden'].astype('str').map(annotation_map1)
+post2 = post[post.obs['patient']=='RCC2',:]
+post2.obs['anno'] = post2.obs['leiden'].astype('str').map(annotation_map2)
+
+adata1_c.obs.to_csv('check1.txt',sep='\t')
+
+post1_c = post1[post1.obs['anno']=='ccRCC',:]
+post1_c.obs['final'] = ['RCC1_'+item for item in adata1_c.obs['leiden']]
+post2_c = post2[post2.obs['anno']=='ccRCC',:]
+post2_c.obs['final'] = ['RCC2_'+item for item in adata2_c.obs['leiden']]
+
+post12 = post1_c.concatenate(post2_c)
+sc.pl.umap(post12,color='final')
+plt.savefig('./layout.pdf',bbox_inches='tight')
+plt.close()
+
+post12.write('post12_to_cellxgene.h5ad')
+
+# just for batch-effect removal
+adata1_post_c.obs['leiden'] = adata1_c.obs['leiden']
+adata2_post_c.obs['leiden'] = adata2_c.obs['leiden']
+adata1_post_c.raw = adata1_post_c
+adata2_post_c.raw = adata2_post_c
+adata1_c = adata1_post_c
+adata2_c = adata2_post_c
+
+
+
 
 
 ''' train in RCC1, test on RCC2'''
@@ -184,17 +278,24 @@ plt.savefig('./RCC2-RCC1.pdf',bbox_inches='tight')
 plt.close()
 
 
-'''avearge two confusion matrix'''
-mat_df = pd.DataFrame(data=(mat_df21.values + mat_df12.T.values)/2,index=['RCC1_'+item for item in adata1_c.obs['leiden'].cat.categories],
-                        columns=['RCC2_'+item for item in adata2_c.obs['leiden'].cat.categories])
-sns.heatmap(mat_df,annot=True)
-plt.savefig('./RCC.pdf',bbox_inches='tight')
-plt.close()
+
+
+# '''avearge two confusion matrix'''
+# mat_df = pd.DataFrame(data=(mat_df21.values + mat_df12.T.values)/2,index=['RCC1_'+item for item in adata1_c.obs['leiden'].cat.categories],
+#                         columns=['RCC2_'+item for item in adata2_c.obs['leiden'].cat.categories])
+# sns.heatmap(mat_df,annot=True)
+# plt.savefig('./RCC.pdf',bbox_inches='tight')
+# plt.close()
 
 
 
 
 
+# '''Some additional gene list'''
+# hla_gene = ['HLA-A','HLA-B','HLA-C','HLA-DMA','HLA-DMB','HLA-DOA','HLA-DOB','HLA-DPA1','HLA-DPA2','HLA-DPA3','HLA-DPB1','HLA-DPB2',
+#             'HLA-DQA1','HLA-DQA2','HLA-DQB1','HLA-DQB2','HLA-DQB3','HLA-DRA','HLA-DRB1','HLA-DRB2','HLA-DRB3','HLA-DRB4','HLA-DRB5',
+#             'HLA-DRB6','HLA-DRB7','HLA-DRB8','HLA-DRB9']
+# copper_gene = ['MT-CO1','MT-CO2','MT-CO3']
 
 
 
